@@ -60,6 +60,127 @@ function newGame(){
 }
 function toast(msg){ toasts.push({msg, t:260}); if(toasts.length>4) toasts.shift(); }
 
+// ============================================================ input
+const keys = {};
+addEventListener("keydown", e=>{
+  keys[e.key.toLowerCase()] = true;
+  const k = e.key.toLowerCase();
+  if(k==="1") selectTool("hoe");
+  if(k==="2") selectTool("seeds");
+  if(k==="3") selectTool("water");
+  if(k==="4") selectTool("hand");
+  if(k===" ") { e.preventDefault(); useTool(); }
+  if(k==="e") interact();
+});
+addEventListener("keyup", e=>{ keys[e.key.toLowerCase()] = false; });
+cv.addEventListener("mousedown", ()=>useTool());
+cv.addEventListener("wheel", e=>{
+  e.preventDefault();
+  const order=["hoe","seeds","water","hand"];
+  let i=order.indexOf(player.tool)+(e.deltaY>0?1:-1);
+  selectTool(order[(i+4)%4]);
+},{passive:false});
+
+function selectTool(t){ player.tool=t; }
+function facingTile(){
+  const px = player.x + player.dx*22, py = player.y + player.dy*22;
+  return {x:Math.floor(px/T), y:Math.floor(py/T)};
+}
+function spend(n){
+  if(player.energy < n){ toast("Too tired... sleep at the house to restore energy."); return false; }
+  player.energy -= n; return true;
+}
+function useTool(){
+  if(fading) return;
+  const f = facingTile();
+  if(f.x<1||f.y<1||f.x>=COLS-1||f.y>=ROWS-1) return;
+  const tile = map[f.y][f.x];
+  const t = player.tool;
+
+  if(t==="hoe"){
+    if(tile.t==="grass" && !tile.crop){ if(spend(2)){ tile.t="tilled"; tile.wet=false; } }
+    else if(tile.t==="tilled") toast("Already tilled.");
+    else toast("Can't till here.");
+  }
+  else if(t==="seeds"){
+    if(tile.t==="tilled" && !tile.crop){
+      if(player.seeds<=0){ toast("Out of seeds! Buy more at the bin... someday. (demo: sleeping grants 3 seeds)"); return; }
+      if(spend(1)){ tile.crop={stage:0}; player.seeds--; }
+    }
+    else toast("Needs tilled, empty soil.");
+  }
+  else if(t==="water"){
+    if(tile.t==="tilled"){
+      if(!tile.wet){ if(spend(1)){ tile.wet=true; } }
+      else toast("Already watered.");
+    } else toast("Nothing to water here.");
+  }
+  else if(t==="hand"){
+    if(tile.crop && tile.crop.stage>=MAX_STAGE){
+      if(spend(1)){ tile.crop=null; tile.wet=false; player.crops++; toast("Harvested a rootlet! (+1 crop)"); }
+    }
+    else if(tile.crop) toast("Still growing (stage "+(tile.crop.stage+1)+"/4).");
+    else toast("Nothing to harvest.");
+  }
+}
+function interact(){
+  if(fading) return;
+  const px=Math.floor(player.x/T), py=Math.floor(player.y/T);
+  const near = (tx,ty)=>Math.abs(px-tx)<=1&&Math.abs(py-ty)<=1;
+  if(near(BIN.x,BIN.y)){
+    if(player.crops<=0){ toast("Bin is empty. Harvest crops first!"); return; }
+    const earned = player.crops*CROP_PRICE;
+    player.gold += earned; toast("Sold "+player.crops+" crop(s) for "+earned+"g!"); player.crops=0;
+  }
+  else if(near(DOOR.x,DOOR.y)) sleep();
+  else toast("Nothing to interact with. (Bin: sell crops, Door: sleep)");
+}
+function sleep(){
+  fading = 1; fadeDir = 1;
+}
+function finishSleep(){
+  let grew=0;
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=map[y][x];
+    if(t.crop && t.wet && t.crop.stage<MAX_STAGE){ t.crop.stage++; grew++; }
+    t.wet = false;
+  }
+  day++; player.energy=100; player.seeds+=3;
+  raining = Math.random()<0.25;
+  if(raining) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(map[y][x].t==="tilled") map[y][x].wet=true;
+  toast("Day "+day+". "+(grew? grew+" crop(s) grew. ":"Nothing grew (need water!). ")+(raining?"It's raining — soil watered for free.":""));
+}
+
+// ============================================================ update
+function update(){
+  frame++;
+  if(fading){
+    fading += fadeDir*0.06;
+    if(fading>=1.6){ finishSleep(); fadeDir=-1; }
+    if(fadeDir<0 && fading<=0){ fading=0; fadeDir=0; }
+  }
+  const sp=2.4;
+  let mx=0,my=0;
+  if(keys["a"]||keys["arrowleft"]) mx-=1;
+  if(keys["d"]||keys["arrowright"]) mx+=1;
+  if(keys["w"]||keys["arrowup"]) my-=1;
+  if(keys["s"]||keys["arrowdown"]) my+=1;
+  if(mx||my){
+    const len=Math.hypot(mx,my); mx/=len; my/=len;
+    player.dx=mx; player.dy=my;
+    const nx=player.x+mx*sp, ny=player.y+my*sp, r=10;
+    // collision (check both corners of player body)
+    if(!hitSolid(nx-r,player.y-r)&&!hitSolid(nx+r,player.y+r)) player.x=nx;
+    if(!hitSolid(player.x-r,ny-r)&&!hitSolid(player.x+r,ny+r)) player.y=ny;
+  }
+  for(let i=toasts.length-1;i>=0;i--){ toasts[i].t--; if(toasts[i].t<=0) toasts.splice(i,1); }
+}
+function hitSolid(px,py){
+  const tx=Math.floor(px/T), ty=Math.floor(py/T);
+  if(tx<0||ty<0||tx>=COLS||ty>=ROWS) return true;
+  return solid(tx,ty);
+}
+
 // __NEXT__
 </script>
 </body>
