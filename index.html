@@ -31,6 +31,35 @@ const POND  = {x0:20, y0:13, x1:24, y1:16};  // decorative water
 
 const CROP_PRICE = 35, SEED_PRICE = 12, MAX_STAGE = 3;
 
+// ============================================================ state
+let map = [];                                // map[y][x] = {t:'grass'|'tilled', wet, crop:null|{stage}}
+let player, raining = false, day = 1, toasts = [];
+let frame = 0, fading = 0, fadeDir = 0;      // fade for sleep transition
+
+function resetMap(){
+  map = [];
+  for(let y=0;y<ROWS;y++){
+    const row=[];
+    for(let x=0;x<COLS;x++) row.push({t:"grass", wet:false, crop:null});
+    map.push(row);
+  }
+}
+function solid(x,y){
+  if(x<=0||y<=0||x>=COLS-1||y>=ROWS-1) return true;              // fence border
+  if(x>=HOUSE.x0&&x<=HOUSE.x1&&y>=HOUSE.y0&&y<=HOUSE.y1) return true;
+  if(x===BIN.x&&y===BIN.y) return true;
+  if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1) return true;
+  return false;
+}
+function newGame(){
+  resetMap();
+  player = {x:9.5*T, y:5.5*T, dx:0, dy:1, tool:"hoe",
+            energy:100, gold:50, seeds:12, crops:0};
+  day = 1; raining = false; toasts = [];
+  toast("Welcome! Till soil with the Hoe (1), plant Seeds (2), Water (3), harvest with Hand (4).");
+}
+function toast(msg){ toasts.push({msg, t:260}); if(toasts.length>4) toasts.shift(); }
+
 // __NEXT__
 </script>
 </body>
