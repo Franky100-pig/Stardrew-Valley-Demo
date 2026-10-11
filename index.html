@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rootlet Farm — a tiny farming sim</title>
+<style>
+  html,body{margin:0;padding:0;background:#1b2417;display:flex;flex-direction:column;align-items:center;font-family:'Segoe UI',system-ui,sans-serif;}
+  h1{color:#e8dcc0;font-size:18px;margin:12px 0 6px;letter-spacing:1px;}
+  canvas{image-rendering:pixelated;border:4px solid #3a2f22;border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,.5);}
+  #hint{color:#9aa88a;font-size:13px;margin:8px 0 16px;text-align:center;line-height:1.6;}
+  kbd{background:#2e3a26;color:#e8dcc0;border:1px solid #55664a;border-radius:4px;padding:1px 6px;font-family:inherit;font-size:12px;}
+</style>
+</head>
+<body>
+<h1>ROOTLET FARM</h1>
+<canvas id="game" width="832" height="576"></canvas>
+<div id="hint">
+  <kbd>WASD</kbd>/<kbd>←↑→↓</kbd> move &nbsp; <kbd>1</kbd> Hoe &nbsp; <kbd>2</kbd> Seeds &nbsp; <kbd>3</kbd> Water &nbsp; <kbd>4</kbd> Hand &nbsp;
+  <kbd>Space</kbd>/<kbd>Click</kbd> use tool &nbsp; <kbd>E</kbd> interact (sell bin / house door to sleep)
+</div>
+<script>
+"use strict";
+// ============================================================ constants
+const T = 32, COLS = 26, ROWS = 18;
+const cv = document.getElementById("game"), ctx = cv.getContext("2d");
+
+const HOUSE = {x0:2, y0:1, x1:6, y1:3};      // solid block (tiles)
+const DOOR  = {x:4, y:3};                    // sleep here
+const BIN   = {x:8, y:2};                    // sell crops here
+const POND  = {x0:20, y0:13, x1:24, y1:16};  // decorative water
+
+const CROP_PRICE = 35, SEED_PRICE = 12, MAX_STAGE = 3;
+
+// __NEXT__
+</script>
+</body>
+</html>
