@@ -181,7 +181,141 @@ function hitSolid(px,py){
   return solid(tx,ty);
 }
 
-// __NEXT__
+// ============================================================ render
+function hash(x,y){ let h=(x*374761393+y*668265263)^0x5bf03635; return ((h^(h>>13))>>>0)/4294967295; }
+function render(){
+  // tiles
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=map[y][x], h=hash(x,y);
+    if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1){
+      ctx.fillStyle = (Math.floor(frame/40)+x+y)%2? "#3b6ea5":"#3f76b0";
+    } else if(t.t==="grass"){
+      ctx.fillStyle = (x+y)%2? "#4a7c3a":"#457636";
+      ctx.fillRect(x*T,y*T,T,T);
+      if(h>0.8){ ctx.fillStyle="#3f6b31"; ctx.fillRect(x*T+8+h*10,y*T+10,3,3); ctx.fillRect(x*T+20,y*T+18+h*4,3,3); }
+    } else { // tilled
+      ctx.fillStyle = t.wet? "#513722":"#6b4a2c";
+      ctx.fillRect(x*T,y*T,T,T);
+      ctx.fillStyle = t.wet? "#452e1c":"#5d3f24";
+      for(let r=0;r<3;r++) ctx.fillRect(x*T+3, y*T+6+r*9, T-6, 3);
+    }
+    if(t.crop) drawCrop(x,y,t.crop.stage);
+  }
+  drawHouse(); drawBin(); drawFence();
+  if(raining) drawRain();
+  drawPlayer();
+  drawNightTint();
+  drawHUD();
+  drawToasts();
+  if(fading){ ctx.fillStyle="rgba(0,0,0,"+Math.min(fading,1)+")"; ctx.fillRect(0,0,cv.width,cv.height);
+    if(fadeDir>0){ ctx.fillStyle="#fff"; ctx.font="16px 'Segoe UI'"; ctx.textAlign="center"; ctx.fillText("Sleeping...", cv.width/2, cv.height/2); } }
+}
+function drawCrop(x,y,stage){
+  const cx=x*T+T/2, by=y*T+T-6;
+  ctx.fillStyle="#2e5d22";
+  if(stage===0){ ctx.fillStyle="#cdd39a"; ctx.fillRect(cx-3,by-4,6,4); }
+  else if(stage===1){ ctx.fillRect(cx-1,by-8,3,8); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-4,by-9,4,3); ctx.fillRect(cx+1,by-11,4,3); }
+  else if(stage===2){ ctx.fillRect(cx-1,by-14,3,14); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-7,by-14,6,4); ctx.fillRect(cx+2,by-17,6,4); ctx.fillRect(cx-1,by-20,3,4); }
+  else { ctx.fillRect(cx-1,by-16,3,16); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-8,by-16,7,4); ctx.fillRect(cx+2,by-19,7,4);
+    ctx.fillStyle="#e8a33d"; ctx.beginPath(); ctx.ellipse(cx,by-20,5,7,0,0,7); ctx.fill();
+    ctx.fillStyle="#f7c96b"; ctx.fillRect(cx-2,by-24,4,4); }
+}
+function drawHouse(){
+  const px=HOUSE.x0*T, py=HOUSE.y0*T, w=(HOUSE.x1-HOUSE.x0+1)*T, h=(HOUSE.y1-HOUSE.y0+1)*T;
+  ctx.fillStyle="#b04a3a"; ctx.fillRect(px,py+8,w,h-8);                    // walls
+  ctx.fillStyle="#8a3a2e";                                                  // roof
+  ctx.beginPath(); ctx.moveTo(px-6,py+12); ctx.lineTo(px+w/2,py-6); ctx.lineTo(px+w+6,py+12); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="#5d3f24";                                                  // door
+  ctx.fillRect(DOOR.x*T+4, py+h-26, T-8, 26);
+  ctx.fillStyle="#f2d06b"; ctx.fillRect(px+w-22, py+h/2, 8, 10);            // window
+}
+function drawBin(){
+  const x=BIN.x*T, y=BIN.y*T;
+  ctx.fillStyle="#6e4f2a"; ctx.fillRect(x+3,y+8,T-6,T-12);
+  ctx.fillStyle="#55381d"; ctx.fillRect(x+1,y+4,T-2,7);
+  ctx.fillStyle="#8a6a3d"; ctx.fillRect(x+6,y+12,T-12,4);
+}
+function drawFence(){
+  ctx.fillStyle="#7a5a33";
+  for(let x=0;x<COLS;x++){ ctx.fillRect(x*T+4,4,T-8,6); ctx.fillRect(x*T+4,(ROWS-1)*T+22,T-8,6); }
+  for(let y=0;y<ROWS;y++){ ctx.fillRect(4,y*T+4,6,T-8); ctx.fillRect((COLS-1)*T+22,y*T+4,6,T-8); }
+  ctx.fillStyle="#8a6a3d";
+  for(let x=0;x<COLS;x++){ ctx.fillRect(x*T+2,2,5,10); ctx.fillRect(x*T+2,(ROWS-1)*T+20,5,10); }
+  for(let y=0;y<ROWS;y++){ ctx.fillRect(2,y*T+2,10,5); ctx.fillRect((COLS-1)*T+20,y*T+2,10,5); }
+}
+function drawRain(){
+  ctx.fillStyle="rgba(160,200,255,0.45)";
+  for(let i=0;i<70;i++){
+    const rx=(i*97+frame*7)%(cv.width+40)-20, ry=(i*131+frame*11)%cv.height;
+    ctx.fillRect(rx,ry,2,10);
+  }
+  ctx.fillStyle="rgba(40,60,90,0.15)"; ctx.fillRect(0,0,cv.width,cv.height);
+}
+function drawNightTint(){
+  // subtle vignette for mood
+  const g=ctx.createRadialGradient(cv.width/2,cv.height/2,200,cv.width/2,cv.height/2,560);
+  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(10,15,25,0.25)");
+  ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
+}
+function drawPlayer(){
+  const px=player.x, py=player.y;
+  ctx.fillStyle="#2b2b2b"; ctx.fillRect(px-7,py+6,14,5);                    // shadow
+  ctx.fillStyle="#3d6b8f"; ctx.fillRect(px-8,py-2,16,14);                   // body
+  ctx.fillStyle="#e8c39a"; ctx.fillRect(px-6,py-14,12,12);                  // head
+  ctx.fillStyle="#4a3120"; ctx.fillRect(px-7,py-16,14,5);                   // hair
+  // eyes face direction
+  ctx.fillStyle="#222";
+  const ex=player.dx*2, ey=player.dy*2;
+  ctx.fillRect(px-3+ex,py-9+ey,2,2); ctx.fillRect(px+1+ex,py-9+ey,2,2);
+  // tool in hand
+  const hx=px+8, hy=py+4;
+  if(player.tool==="hoe"){ ctx.fillStyle="#8a6a3d"; ctx.fillRect(hx,hy-10,3,14); ctx.fillStyle="#9aa5ad"; ctx.fillRect(hx-3,hy-12,9,3); }
+  else if(player.tool==="water"){ ctx.fillStyle="#5a8fc0"; ctx.beginPath(); ctx.arc(hx+1,hy-2,5,0,7); ctx.fill(); }
+  else if(player.tool==="seeds"){ ctx.fillStyle="#b58a4a"; ctx.beginPath(); ctx.arc(hx+1,hy-2,5,0,7); ctx.fill(); ctx.fillStyle="#cdd39a"; ctx.fillRect(hx,hy-8,2,2); }
+  else { ctx.fillStyle="#e8c39a"; ctx.fillRect(hx,hy-3,4,6); }
+}
+function drawHUD(){
+  ctx.fillStyle="rgba(20,26,16,0.82)"; ctx.fillRect(0,0,cv.width,58);
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillStyle="#f2e6c8"; ctx.font="bold 17px 'Segoe UI'";
+  ctx.fillText("Day "+day, 14, 20);
+  ctx.font="15px 'Segoe UI'";
+  ctx.fillStyle="#f2e6c8"; ctx.fillText("Gold: "+player.gold+"g", 14, 42);
+  // energy bar
+  ctx.fillStyle="#333"; ctx.fillRect(150,32,140,14);
+  ctx.fillStyle= player.energy>30? "#6cc24a":"#d9534f";
+  ctx.fillRect(152,34,136*(player.energy/100),10);
+  ctx.fillStyle="#f2e6c8"; ctx.font="12px 'Segoe UI'"; ctx.fillText("Energy", 150, 18);
+  ctx.font="15px 'Segoe UI'"; ctx.fillStyle="#f2e6c8";
+  ctx.fillText("Seeds: "+player.seeds, 320, 30);
+  ctx.fillText("Crops: "+player.crops+"  (sell "+CROP_PRICE+"g ea)", 440, 30);
+  // tool selector
+  const tools=["hoe","seeds","water","hand"], labels=["Hoe","Seeds","Water","Hand"];
+  let tx=330;
+  tools.forEach((t,i)=>{
+    const sel = player.tool===t;
+    ctx.fillStyle = sel? "#f2d06b":"rgba(255,255,255,0.12)";
+    ctx.fillRect(tx, 40, 68, 14);
+    ctx.fillStyle = sel? "#3a2f10":"#cfd8c2"; ctx.font="11px 'Segoe UI'";
+    ctx.fillText((i+1)+" "+labels[i], tx+6, 48);
+    tx+=74;
+  });
+}
+function drawToasts(){
+  ctx.textAlign="center"; ctx.font="14px 'Segoe UI'";
+  toasts.forEach((t,i)=>{
+    const alpha=Math.min(1,t.t/40);
+    ctx.fillStyle="rgba(15,20,10,"+(0.8*alpha)+")";
+    const w=ctx.measureText(t.msg).width+24;
+    ctx.fillRect(cv.width/2-w/2, 66+i*30, w, 24);
+    ctx.fillStyle="rgba(240,230,200,"+alpha+")";
+    ctx.fillText(t.msg, cv.width/2, 78+i*30);
+  });
+}
+
+// ============================================================ loop
+newGame();
+(function loop(){ update(); render(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>
