@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Rootlet Farm — a tiny farming sim</title>
+<title>Rootlet Farm — a tiny farming sim (Stardew-inspired)</title>
 <style>
   html,body{margin:0;padding:0;background:#1b2417;display:flex;flex-direction:column;align-items:center;font-family:'Segoe UI',system-ui,sans-serif;}
   h1{color:#e8dcc0;font-size:18px;margin:12px 0 6px;letter-spacing:1px;}
   canvas{image-rendering:pixelated;border:4px solid #3a2f22;border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,.5);}
-  #hint{color:#9aa88a;font-size:13px;margin:8px 0 16px;text-align:center;line-height:1.6;}
+  #hint{color:#9aa88a;font-size:13px;margin:8px 0 16px;text-align:center;line-height:1.7;max-width:840px;}
   kbd{background:#2e3a26;color:#e8dcc0;border:1px solid #55664a;border-radius:4px;padding:1px 6px;font-family:inherit;font-size:12px;}
 </style>
 </head>
@@ -16,7 +16,8 @@
 <canvas id="game" width="832" height="576"></canvas>
 <div id="hint">
   <kbd>WASD</kbd>/<kbd>←↑→↓</kbd> move &nbsp; <kbd>1</kbd> Hoe &nbsp; <kbd>2</kbd> Seeds &nbsp; <kbd>3</kbd> Water &nbsp; <kbd>4</kbd> Hand &nbsp;
-  <kbd>Space</kbd>/<kbd>Click</kbd> use tool &nbsp; <kbd>E</kbd> interact (sell bin / house door to sleep)
+  <kbd>C</kbd> pick seed &nbsp; <kbd>Space</kbd>/<kbd>Click</kbd> use tool<br>
+  <kbd>E</kbd> sell at bin / sleep at door &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.
 </div>
 <script>
 "use strict";
@@ -24,17 +25,42 @@
 const T = 32, COLS = 26, ROWS = 18;
 const cv = document.getElementById("game"), ctx = cv.getContext("2d");
 
-const HOUSE = {x0:2, y0:1, x1:6, y1:3};      // solid block (tiles)
-const DOOR  = {x:4, y:3};                    // sleep here
-const BIN   = {x:8, y:2};                    // sell crops here
-const POND  = {x0:20, y0:13, x1:24, y1:16};  // decorative water
+const HOUSE = {x0:2, y0:1, x1:6, y1:3};
+const DOOR  = {x:4, y:3};
+const BIN   = {x:8, y:2};
+const POND  = {x0:20, y0:13, x1:24, y1:16};
 
-const CROP_PRICE = 35, SEED_PRICE = 12, MAX_STAGE = 3;
+const SEASONS = ["Spring","Summer","Fall","Winter"];
+const DAYS_PER_SEASON = 28;
+
+// Per-season ground palette [base, alt] for the grass checker.
+const GRASS = [
+  ["#4a7c3a","#457636"], // Spring
+  ["#3f8f3f","#398236"], // Summer (lush)
+  ["#b8821f","#a8741a"], // Fall
+  ["#e3e9f0","#d6dde8"]  // Winter (snow)
+];
+// Tint laid over the whole scene per season (mood).
+const SEASON_TINT = ["rgba(40,90,40,0.04)","rgba(30,70,30,0.06)","rgba(120,70,20,0.07)","rgba(120,150,190,0.10)"];
+
+// Crop catalog — approximate factual Stardew data (days to mature, sell price,
+// seed price, regrow days, which seasons it may be planted in).
+const CROPS = {
+  parsnip : {name:"Parsnip",  seasons:[0],        days:4,  sell:35,  seed:10, regrow:0, leaf:"#5f8f3e", fruit:"#e8c07a"},
+  potato  : {name:"Potato",   seasons:[0],        days:6,  sell:60,  seed:10, regrow:0, leaf:"#5f8f3e", fruit:"#c89b5a"},
+  blueberry:{name:"Blueberry",seasons:[1],        days:13, sell:50,  seed:40, regrow:4, leaf:"#4f7f3e", fruit:"#5b6fd6"},
+  tomato  : {name:"Tomato",   seasons:[1],        days:4,  sell:60,  seed:20, regrow:3, leaf:"#5f8f3e", fruit:"#d9533b"},
+  pumpkin : {name:"Pumpkin",  seasons:[2],        days:13, sell:300, seed:50, regrow:0, leaf:"#5f8f3e", fruit:"#e08a2b"},
+  wheat   : {name:"Wheat",    seasons:[1,2],      days:4,  sell:25,  seed:5,  regrow:0, leaf:"#caa85a", fruit:"#e3c878"}
+};
+const SEED_ORDER = ["parsnip","potato","blueberry","tomato","pumpkin","wheat"];
 
 // ============================================================ state
-let map = [];                                // map[y][x] = {t:'grass'|'tilled', wet, crop:null|{stage}}
-let player, raining = false, day = 1, toasts = [];
-let frame = 0, fading = 0, fadeDir = 0;      // fade for sleep transition
+let map = [];
+let player, raining = false, year = 1, season = 0, day = 1, selectedSeed = "parsnip";
+let harvest = {};                 // cropKey -> count harvested & held
+let toasts = [];
+let frame = 0, fading = 0, fadeDir = 0;
 
 function resetMap(){
   map = [];
@@ -45,30 +71,33 @@ function resetMap(){
   }
 }
 function solid(x,y){
-  if(x<=0||y<=0||x>=COLS-1||y>=ROWS-1) return true;              // fence border
+  if(x<=0||y<=0||x>=COLS-1||y>=ROWS-1) return true;
   if(x>=HOUSE.x0&&x<=HOUSE.x1&&y>=HOUSE.y0&&y<=HOUSE.y1) return true;
   if(x===BIN.x&&y===BIN.y) return true;
   if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1) return true;
   return false;
 }
+function seedCount(k){ return player.seedInv[k]||0; }
 function newGame(){
   resetMap();
   player = {x:9.5*T, y:5.5*T, dx:0, dy:1, tool:"hoe",
-            energy:100, gold:50, seeds:12, crops:0};
-  day = 1; raining = false; toasts = [];
-  toast("Welcome! Till soil with the Hoe (1), plant Seeds (2), Water (3), harvest with Hand (4).");
+            energy:100, gold:50, seedInv:{parsnip:12}};
+  year=1; season=0; day=1; raining=false; selectedSeed="parsnip"; harvest={}; toasts=[];
+  toast("Welcome! Spring planting: Parsnip. Till (1), plant (2), water (3), harvest (4).");
 }
-function toast(msg){ toasts.push({msg, t:260}); if(toasts.length>4) toasts.shift(); }
+function toast(msg){ toasts.push({msg, t:300}); if(toasts.length>4) toasts.shift(); }
 
 // ============================================================ input
 const keys = {};
 addEventListener("keydown", e=>{
-  keys[e.key.toLowerCase()] = true;
   const k = e.key.toLowerCase();
+  keys[k] = true;
   if(k==="1") selectTool("hoe");
   if(k==="2") selectTool("seeds");
   if(k==="3") selectTool("water");
   if(k==="4") selectTool("hand");
+  if(k==="c"){ const i=(SEED_ORDER.indexOf(selectedSeed)+1)%SEED_ORDER.length; selectedSeed=SEED_ORDER[i]; toast("Seed: "+CROPS[selectedSeed].name); }
+  if(k==="b") buySeed();
   if(k===" ") { e.preventDefault(); useTool(); }
   if(k==="e") interact();
 });
@@ -103,11 +132,12 @@ function useTool(){
     else toast("Can't till here.");
   }
   else if(t==="seeds"){
-    if(tile.t==="tilled" && !tile.crop){
-      if(player.seeds<=0){ toast("Out of seeds! Buy more at the bin... someday. (demo: sleeping grants 3 seeds)"); return; }
-      if(spend(1)){ tile.crop={stage:0}; player.seeds--; }
-    }
-    else toast("Needs tilled, empty soil.");
+    if(tile.t!=="tilled"){ toast("Till the soil first (Hoe)."); return; }
+    if(tile.crop){ toast("Soil already has a crop."); return; }
+    const c = CROPS[selectedSeed];
+    if(!c.seasons.includes(season)){ toast(c.name+" can't grow in "+SEASONS[season]+"."); return; }
+    if(seedCount(selectedSeed)<=0){ toast("No "+c.name+" seeds. Buy at the bin (B)."); return; }
+    if(spend(1)){ player.seedInv[selectedSeed]--; tile.crop={key:selectedSeed, days:0, regrowLeft:0, dead:false}; }
   }
   else if(t==="water"){
     if(tile.t==="tilled"){
@@ -116,11 +146,17 @@ function useTool(){
     } else toast("Nothing to water here.");
   }
   else if(t==="hand"){
-    if(tile.crop && tile.crop.stage>=MAX_STAGE){
-      if(spend(1)){ tile.crop=null; tile.wet=false; player.crops++; toast("Harvested a rootlet! (+1 crop)"); }
+    const cr = tile.crop;
+    if(!cr){ toast("Nothing to harvest."); return; }
+    if(cr.dead){ if(spend(1)){ tile.crop=null; tile.wet=false; toast("Cleared a withered plant."); } return; }
+    const c = CROPS[cr.key];
+    if(cr.days < c.days){ toast(c.name+" still growing ("+cr.days+"/"+c.days+" days)."); return; }
+    if(cr.regrowLeft>0){ toast(c.name+" is regrowing ("+cr.regrowLeft+"d left)."); return; }
+    if(spend(1)){
+      harvest[cr.key]=(harvest[cr.key]||0)+1;
+      if(c.regrow>0){ cr.regrowLeft=c.regrow; toast("Harvested "+c.name+"! Regrows in "+c.regrow+" days."); }
+      else { tile.crop=null; tile.wet=false; toast("Harvested a "+c.name+"!"); }
     }
-    else if(tile.crop) toast("Still growing (stage "+(tile.crop.stage+1)+"/4).");
-    else toast("Nothing to harvest.");
   }
 }
 function interact(){
@@ -128,27 +164,58 @@ function interact(){
   const px=Math.floor(player.x/T), py=Math.floor(player.y/T);
   const near = (tx,ty)=>Math.abs(px-tx)<=1&&Math.abs(py-ty)<=1;
   if(near(BIN.x,BIN.y)){
-    if(player.crops<=0){ toast("Bin is empty. Harvest crops first!"); return; }
-    const earned = player.crops*CROP_PRICE;
-    player.gold += earned; toast("Sold "+player.crops+" crop(s) for "+earned+"g!"); player.crops=0;
+    let total=0; for(const k in harvest) total += harvest[k]*CROPS[k].sell;
+    if(total<=0){ toast("Bin is empty. Harvest crops first!"); return; }
+    player.gold += total; toast("Sold harvest for "+total+"g!"); harvest={};
   }
   else if(near(DOOR.x,DOOR.y)) sleep();
-  else toast("Nothing to interact with. (Bin: sell crops, Door: sleep)");
+  else toast("Nothing to interact with. (Bin: sell/buy, Door: sleep)");
 }
-function sleep(){
-  fading = 1; fadeDir = 1;
+function buySeed(){
+  if(fading) return;
+  const px=Math.floor(player.x/T), py=Math.floor(player.y/T);
+  const near = (tx,ty)=>Math.abs(px-tx)<=1&&Math.abs(py-ty)<=1;
+  if(!near(BIN.x,BIN.y)){ toast("Stand at the shipping bin to buy seeds (B)."); return; }
+  const c = CROPS[selectedSeed];
+  if(player.gold < c.seed){ toast("Need "+c.seed+"g for "+c.name+" seeds. Sell crops first."); return; }
+  player.gold -= c.seed; player.seedInv[selectedSeed]=(seedCount(selectedSeed)+1);
+  toast("Bought 1 "+c.name+" seed ("+c.seed+"g).");
 }
+function sleep(){ fading = 1; fadeDir = 1; }
 function finishSleep(){
-  let grew=0;
+  const newSeason = (day>=DAYS_PER_SEASON);
+  let grew=0, withered=0;
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     const t=map[y][x];
-    if(t.crop && t.wet && t.crop.stage<MAX_STAGE){ t.crop.stage++; grew++; }
+    if(t.crop){
+      const cr=t.crop, c=CROPS[cr.key];
+      if(cr.dead){ /* stays dead until cleared */ }
+      else if(cr.regrowLeft>0){ cr.regrowLeft--; if(cr.regrowLeft===0) cr.days=c.days; }
+      else if(cr.days < c.days){
+        if(t.wet){ cr.days++; if(cr.days>=c.days) grew++; }
+      }
+    }
     t.wet = false;
   }
-  day++; player.energy=100; player.seeds+=3;
+  // Advance calendar
+  day++;
+  if(day>DAYS_PER_SEASON){ day=1; season++; if(season>3){ season=0; year++; } }
+  // Wither out-of-season crops at the season boundary
+  if(newSeason){
+    for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+      const t=map[y][x];
+      if(t.crop && !t.crop.dead && !CROPS[t.crop.key].seasons.includes(season)){ t.crop.dead=true; withered++; }
+    }
+  }
+  player.energy=100;
   raining = Math.random()<0.25;
   if(raining) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(map[y][x].t==="tilled") map[y][x].wet=true;
-  toast("Day "+day+". "+(grew? grew+" crop(s) grew. ":"Nothing grew (need water!). ")+(raining?"It's raining — soil watered for free.":""));
+  let msg="Day "+day+", "+SEASONS[season]+" (Year "+year+").";
+  if(grew) msg+=" "+grew+" crop(s) grew.";
+  else if(!raining) msg+=" Nothing grew — water your crops!";
+  if(withered) msg+=" "+withered+" crop(s) withered with the season change.";
+  if(raining) msg+=" It's raining — soil watered for free.";
+  toast(msg);
 }
 
 // ============================================================ update
@@ -169,7 +236,6 @@ function update(){
     const len=Math.hypot(mx,my); mx/=len; my/=len;
     player.dx=mx; player.dy=my;
     const nx=player.x+mx*sp, ny=player.y+my*sp, r=10;
-    // collision (check both corners of player body)
     if(!hitSolid(nx-r,player.y-r)&&!hitSolid(nx+r,player.y+r)) player.x=nx;
     if(!hitSolid(player.x-r,ny-r)&&!hitSolid(player.x+r,ny+r)) player.y=ny;
   }
@@ -185,49 +251,61 @@ function hitSolid(px,py){
 function hash(x,y){ let h=(x*374761393+y*668265263)^0x5bf03635; return ((h^(h>>13))>>>0)/4294967295; }
 function render(){
   // tiles
+  const pal = GRASS[season];
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     const t=map[y][x], h=hash(x,y);
     if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1){
       ctx.fillStyle = (Math.floor(frame/40)+x+y)%2? "#3b6ea5":"#3f76b0";
     } else if(t.t==="grass"){
-      ctx.fillStyle = (x+y)%2? "#4a7c3a":"#457636";
+      ctx.fillStyle = (x+y)%2? pal[0]:pal[1];
       ctx.fillRect(x*T,y*T,T,T);
-      if(h>0.8){ ctx.fillStyle="#3f6b31"; ctx.fillRect(x*T+8+h*10,y*T+10,3,3); ctx.fillRect(x*T+20,y*T+18+h*4,3,3); }
+      if(season!==3 && h>0.8){ ctx.fillStyle=season===2?"#8a5a18":"#3f6b31"; ctx.fillRect(x*T+8+h*10,y*T+10,3,3); ctx.fillRect(x*T+20,y*T+18+h*4,3,3); }
     } else { // tilled
       ctx.fillStyle = t.wet? "#513722":"#6b4a2c";
       ctx.fillRect(x*T,y*T,T,T);
       ctx.fillStyle = t.wet? "#452e1c":"#5d3f24";
       for(let r=0;r<3;r++) ctx.fillRect(x*T+3, y*T+6+r*9, T-6, 3);
     }
-    if(t.crop) drawCrop(x,y,t.crop.stage);
+    if(t.crop) drawCrop(x,y,t.crop);
   }
   drawHouse(); drawBin(); drawFence();
-  if(raining) drawRain();
+  if(raining) drawRain(); else if(season===3) drawSnow();
   drawPlayer();
+  // season mood tint
+  ctx.fillStyle=SEASON_TINT[season]; ctx.fillRect(0,0,cv.width,cv.height);
   drawNightTint();
   drawHUD();
   drawToasts();
   if(fading){ ctx.fillStyle="rgba(0,0,0,"+Math.min(fading,1)+")"; ctx.fillRect(0,0,cv.width,cv.height);
     if(fadeDir>0){ ctx.fillStyle="#fff"; ctx.font="16px 'Segoe UI'"; ctx.textAlign="center"; ctx.fillText("Sleeping...", cv.width/2, cv.height/2); } }
 }
-function drawCrop(x,y,stage){
-  const cx=x*T+T/2, by=y*T+T-6;
-  ctx.fillStyle="#2e5d22";
-  if(stage===0){ ctx.fillStyle="#cdd39a"; ctx.fillRect(cx-3,by-4,6,4); }
-  else if(stage===1){ ctx.fillRect(cx-1,by-8,3,8); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-4,by-9,4,3); ctx.fillRect(cx+1,by-11,4,3); }
-  else if(stage===2){ ctx.fillRect(cx-1,by-14,3,14); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-7,by-14,6,4); ctx.fillRect(cx+2,by-17,6,4); ctx.fillRect(cx-1,by-20,3,4); }
-  else { ctx.fillRect(cx-1,by-16,3,16); ctx.fillStyle="#5f8f3e"; ctx.fillRect(cx-8,by-16,7,4); ctx.fillRect(cx+2,by-19,7,4);
-    ctx.fillStyle="#e8a33d"; ctx.beginPath(); ctx.ellipse(cx,by-20,5,7,0,0,7); ctx.fill();
-    ctx.fillStyle="#f7c96b"; ctx.fillRect(cx-2,by-24,4,4); }
+function drawCrop(x,y,cr){
+  const cx=x*T+T/2, by=y*T+T-6, c=CROPS[cr.key];
+  if(cr.dead){
+    ctx.strokeStyle="#6b4a2c"; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(cx-6,by-10); ctx.lineTo(cx+6,by+2); ctx.moveTo(cx+6,by-10); ctx.lineTo(cx-6,by+2); ctx.stroke();
+    return;
+  }
+  const p = cr.days / c.days;                 // 0..1 growth progress
+  ctx.fillStyle=c.leaf;
+  if(p<=0){ ctx.fillStyle="#cdd39a"; ctx.fillRect(cx-3,by-4,6,4); }
+  else if(p<0.34){ ctx.fillRect(cx-1,by-8,3,8); ctx.fillStyle=c.leaf; ctx.fillRect(cx-4,by-9,4,3); ctx.fillRect(cx+1,by-11,4,3); }
+  else if(p<0.7){ ctx.fillRect(cx-1,by-14,3,14); ctx.fillStyle=c.leaf; ctx.fillRect(cx-7,by-14,6,4); ctx.fillRect(cx+2,by-17,6,4); ctx.fillRect(cx-1,by-20,3,4); }
+  else { // mature (or regrowing) — show fruit
+    ctx.fillRect(cx-1,by-16,3,16); ctx.fillStyle=c.leaf; ctx.fillRect(cx-8,by-16,7,4); ctx.fillRect(cx+2,by-19,7,4);
+    ctx.fillStyle=c.fruit; ctx.beginPath(); ctx.ellipse(cx,by-20,5,7,0,0,7); ctx.fill();
+    ctx.fillStyle="#f7c96b"; ctx.fillRect(cx-2,by-24,4,4);
+  }
+  // regrow indicator
+  if(cr.regrowLeft>0){ ctx.fillStyle="#f2d06b"; ctx.font="9px 'Segoe UI'"; ctx.textAlign="center"; ctx.fillText(cr.regrowLeft+"d", cx, by-26); }
 }
 function drawHouse(){
   const px=HOUSE.x0*T, py=HOUSE.y0*T, w=(HOUSE.x1-HOUSE.x0+1)*T, h=(HOUSE.y1-HOUSE.y0+1)*T;
-  ctx.fillStyle="#b04a3a"; ctx.fillRect(px,py+8,w,h-8);                    // walls
-  ctx.fillStyle="#8a3a2e";                                                  // roof
+  ctx.fillStyle="#b04a3a"; ctx.fillRect(px,py+8,w,h-8);
+  ctx.fillStyle="#8a3a2e";
   ctx.beginPath(); ctx.moveTo(px-6,py+12); ctx.lineTo(px+w/2,py-6); ctx.lineTo(px+w+6,py+12); ctx.closePath(); ctx.fill();
-  ctx.fillStyle="#5d3f24";                                                  // door
-  ctx.fillRect(DOOR.x*T+4, py+h-26, T-8, 26);
-  ctx.fillStyle="#f2d06b"; ctx.fillRect(px+w-22, py+h/2, 8, 10);            // window
+  ctx.fillStyle="#5d3f24"; ctx.fillRect(DOOR.x*T+4, py+h-26, T-8, 26);
+  ctx.fillStyle="#f2d06b"; ctx.fillRect(px+w-22, py+h/2, 8, 10);
 }
 function drawBin(){
   const x=BIN.x*T, y=BIN.y*T;
@@ -251,23 +329,27 @@ function drawRain(){
   }
   ctx.fillStyle="rgba(40,60,90,0.15)"; ctx.fillRect(0,0,cv.width,cv.height);
 }
+function drawSnow(){
+  ctx.fillStyle="rgba(255,255,255,0.85)";
+  for(let i=0;i<60;i++){
+    const rx=(i*113+frame*1.5)%cv.width, ry=(i*157+frame*0.8)%cv.height;
+    ctx.fillRect(rx,ry,2,2);
+  }
+}
 function drawNightTint(){
-  // subtle vignette for mood
   const g=ctx.createRadialGradient(cv.width/2,cv.height/2,200,cv.width/2,cv.height/2,560);
   g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(10,15,25,0.25)");
   ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
 }
 function drawPlayer(){
   const px=player.x, py=player.y;
-  ctx.fillStyle="#2b2b2b"; ctx.fillRect(px-7,py+6,14,5);                    // shadow
-  ctx.fillStyle="#3d6b8f"; ctx.fillRect(px-8,py-2,16,14);                   // body
-  ctx.fillStyle="#e8c39a"; ctx.fillRect(px-6,py-14,12,12);                  // head
-  ctx.fillStyle="#4a3120"; ctx.fillRect(px-7,py-16,14,5);                   // hair
-  // eyes face direction
+  ctx.fillStyle="#2b2b2b"; ctx.fillRect(px-7,py+6,14,5);
+  ctx.fillStyle="#3d6b8f"; ctx.fillRect(px-8,py-2,16,14);
+  ctx.fillStyle="#e8c39a"; ctx.fillRect(px-6,py-14,12,12);
+  ctx.fillStyle="#4a3120"; ctx.fillRect(px-7,py-16,14,5);
   ctx.fillStyle="#222";
   const ex=player.dx*2, ey=player.dy*2;
   ctx.fillRect(px-3+ex,py-9+ey,2,2); ctx.fillRect(px+1+ex,py-9+ey,2,2);
-  // tool in hand
   const hx=px+8, hy=py+4;
   if(player.tool==="hoe"){ ctx.fillStyle="#8a6a3d"; ctx.fillRect(hx,hy-10,3,14); ctx.fillStyle="#9aa5ad"; ctx.fillRect(hx-3,hy-12,9,3); }
   else if(player.tool==="water"){ ctx.fillStyle="#5a8fc0"; ctx.beginPath(); ctx.arc(hx+1,hy-2,5,0,7); ctx.fill(); }
@@ -278,26 +360,30 @@ function drawHUD(){
   ctx.fillStyle="rgba(20,26,16,0.82)"; ctx.fillRect(0,0,cv.width,58);
   ctx.textAlign="left"; ctx.textBaseline="middle";
   ctx.fillStyle="#f2e6c8"; ctx.font="bold 17px 'Segoe UI'";
-  ctx.fillText("Day "+day, 14, 20);
+  ctx.fillText(SEASONS[season]+" "+day+", Y"+year, 14, 20);
   ctx.font="15px 'Segoe UI'";
   ctx.fillStyle="#f2e6c8"; ctx.fillText("Gold: "+player.gold+"g", 14, 42);
   // energy bar
-  ctx.fillStyle="#333"; ctx.fillRect(150,32,140,14);
+  ctx.fillStyle="#333"; ctx.fillRect(170,32,140,14);
   ctx.fillStyle= player.energy>30? "#6cc24a":"#d9534f";
-  ctx.fillRect(152,34,136*(player.energy/100),10);
-  ctx.fillStyle="#f2e6c8"; ctx.font="12px 'Segoe UI'"; ctx.fillText("Energy", 150, 18);
-  ctx.font="15px 'Segoe UI'"; ctx.fillStyle="#f2e6c8";
-  ctx.fillText("Seeds: "+player.seeds, 320, 30);
-  ctx.fillText("Crops: "+player.crops+"  (sell "+CROP_PRICE+"g ea)", 440, 30);
+  ctx.fillRect(172,34,136*(player.energy/100),10);
+  ctx.fillStyle="#f2e6c8"; ctx.font="12px 'Segoe UI'"; ctx.fillText("Energy", 170, 18);
+  // selected seed
+  const c=CROPS[selectedSeed];
+  ctx.font="14px 'Segoe UI'"; ctx.fillStyle="#f2e6c8";
+  ctx.fillText("Seed: "+c.name+" x"+seedCount(selectedSeed), 340, 18);
+  // held harvest
+  let held=0; for(const k in harvest) held+=harvest[k];
+  ctx.fillText("Harvest: "+held, 340, 40);
   // tool selector
   const tools=["hoe","seeds","water","hand"], labels=["Hoe","Seeds","Water","Hand"];
-  let tx=330;
+  let tx=540;
   tools.forEach((t,i)=>{
     const sel = player.tool===t;
     ctx.fillStyle = sel? "#f2d06b":"rgba(255,255,255,0.12)";
-    ctx.fillRect(tx, 40, 68, 14);
+    ctx.fillRect(tx, 36, 68, 16);
     ctx.fillStyle = sel? "#3a2f10":"#cfd8c2"; ctx.font="11px 'Segoe UI'";
-    ctx.fillText((i+1)+" "+labels[i], tx+6, 48);
+    ctx.fillText((i+1)+" "+labels[i], tx+6, 45);
     tx+=74;
   });
 }
