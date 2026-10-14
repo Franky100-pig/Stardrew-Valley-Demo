@@ -17,7 +17,7 @@
 <div id="hint">
   <kbd>WASD</kbd>/<kbd>←↑→↓</kbd> move &nbsp; <kbd>1</kbd> Hoe &nbsp; <kbd>2</kbd> Seeds &nbsp; <kbd>3</kbd> Water &nbsp; <kbd>4</kbd> Hand &nbsp;
   <kbd>C</kbd> pick seed &nbsp; <kbd>Space</kbd>/<kbd>Click</kbd> use tool<br>
-  <kbd>E</kbd> sell at bin / sleep at door &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.<br>
+  <kbd>E</kbd> sell / sleep / talk to villagers &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.<br>
   The farm is much bigger now — explore it, and use the minimap (bottom-right) to find your way back to the house &amp; shipping bin.
 </div>
 <script>
@@ -198,7 +198,13 @@ function interact(){
     player.gold += total; toast("Sold harvest for "+total+"g!"); harvest={};
   }
   else if(near(DOOR.x,DOOR.y)) sleep();
-  else toast("Nothing to interact with. (Bin: sell/buy, Door: sleep)");
+  else {
+    // nearby villager? (no friendship/event system yet — just a greeting)
+    let best=99, nearNpc=null;
+    for(const n of NPCS){ const d=Math.abs(px-n.x)+Math.abs(py-n.y); if(d<=2 && d<best){ best=d; nearNpc=n; } }
+    if(nearNpc){ toast(nearNpc.name+": "+nearNpc.greeting); return; }
+    toast("Nothing to interact with. (Bin: sell/buy, Door: sleep, Villager: talk)");
+  }
 }
 function buySeed(){
   if(fading) return;
