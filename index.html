@@ -97,12 +97,14 @@ function resetMap(){
     if(tree) map[y][x].t="tree";
   }
 }
+function npcAt(tx,ty){ for(const n of NPCS) if(n.x===tx && n.y===ty) return n; return null; }
 function solid(x,y){
   if(x<=0||y<=0||x>=COLS-1||y>=ROWS-1) return true;
   if(x>=HOUSE.x0&&x<=HOUSE.x1&&y>=HOUSE.y0&&y<=HOUSE.y1) return true;
   if(x===BIN.x&&y===BIN.y) return true;
   if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1) return true;
   if(inBounds(x,y) && map[y][x].t==="tree") return true;
+  if(npcAt(x,y)) return true;
   return false;
 }
 function seedCount(k){ return player.seedInv[k]||0; }
