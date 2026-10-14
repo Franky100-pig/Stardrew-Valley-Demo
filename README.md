@@ -19,6 +19,10 @@ code** — no game assets or decompiled source are included.
   camera viewport and a minimap (bottom-right) so you can explore without losing your way.
 - **Forest & groves** — a deterministic tree border plus a couple of interior groves frame the
   farmland; trees are solid obstacles, the home/farm yard stays clear.
+- **Villagers (NPCs)** — five original homage characters (Mara, Old Tom, Pim, Wren, Bram) stand around
+  the farm, are solid (you can't walk through them), appear as labeled dots on the minimap, and will
+  give you a flavor line when you press `E` nearby. *The friendship / gift / event system is deliberately
+  not modeled yet* — they're just atmosphere for now.
 
 ## Controls
 
@@ -28,7 +32,7 @@ code** — no game assets or decompiled source are included.
 | `1` `2` `3` `4` | Hoe / Seeds / Water / Hand |
 | `C` | Cycle selected seed |
 | `Space` / Click | Use tool on facing tile |
-| `E` | Sell harvest at bin / sleep at door |
+| `E` | Sell harvest at bin / sleep at door / talk to a nearby villager |
 | `B` | Buy 1 seed at bin |
 
 ## Run it
