@@ -15,6 +15,10 @@ code** — no game assets or decompiled source are included.
 - **Regrowable crops** — e.g. Tomato / Blueberry keep producing after harvest (`regrowDays`).
 - **Withering** — crops not valid in the new season die at the season change (`Crop.dead`).
 - **Seed economy** — buy seeds at the shipping bin, sell harvest there.
+- **Bigger world + camera** — the farm is now 48×36 tiles (was 26×18) with a player-following
+  camera viewport and a minimap (bottom-right) so you can explore without losing your way.
+- **Forest & groves** — a deterministic tree border plus a couple of interior groves frame the
+  farmland; trees are solid obstacles, the home/farm yard stays clear.
 
 ## Controls
 

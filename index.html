@@ -17,18 +17,19 @@
 <div id="hint">
   <kbd>WASD</kbd>/<kbd>←↑→↓</kbd> move &nbsp; <kbd>1</kbd> Hoe &nbsp; <kbd>2</kbd> Seeds &nbsp; <kbd>3</kbd> Water &nbsp; <kbd>4</kbd> Hand &nbsp;
   <kbd>C</kbd> pick seed &nbsp; <kbd>Space</kbd>/<kbd>Click</kbd> use tool<br>
-  <kbd>E</kbd> sell at bin / sleep at door &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.
+  <kbd>E</kbd> sell at bin / sleep at door &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.<br>
+  The farm is much bigger now — explore it, and use the minimap (bottom-right) to find your way back to the house &amp; shipping bin.
 </div>
 <script>
 "use strict";
 // ============================================================ constants
-const T = 32, COLS = 26, ROWS = 18;
+const T = 32, COLS = 48, ROWS = 36;
 const cv = document.getElementById("game"), ctx = cv.getContext("2d");
 
 const HOUSE = {x0:2, y0:1, x1:6, y1:3};
 const DOOR  = {x:4, y:3};
 const BIN   = {x:8, y:2};
-const POND  = {x0:20, y0:13, x1:24, y1:16};
+const POND  = {x0:34, y0:24, x1:40, y1:29};
 
 const SEASONS = ["Spring","Summer","Fall","Winter"];
 const DAYS_PER_SEASON = 28;
@@ -61,7 +62,10 @@ let player, raining = false, year = 1, season = 0, day = 1, selectedSeed = "pars
 let harvest = {};                 // cropKey -> count harvested & held
 let toasts = [];
 let frame = 0, fading = 0, fadeDir = 0;
+let camX = 0, camY = 0;           // top-left of the viewport, in world pixels
 
+function inBounds(x,y){ return x>=0 && y>=0 && x<COLS && y<ROWS; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 function resetMap(){
   map = [];
   for(let y=0;y<ROWS;y++){
@@ -69,12 +73,24 @@ function resetMap(){
     for(let x=0;x<COLS;x++) row.push({t:"grass", wet:false, crop:null});
     map.push(row);
   }
+  // forest border + a couple of interior groves (deterministic), keeps farmland open
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    if(solid(x,y)) continue;
+    if(x<11 && y<9) continue;                       // keep the home/farm yard clear
+    const edge = (x<6 || x>COLS-7 || y<6 || y>ROWS-7);
+    let tree=false;
+    if(edge) tree = hash(x,y)>0.5;
+    const gA = Math.hypot(x-24,y-18)<4, gB = Math.hypot(x-14,y-28)<4;
+    if((gA||gB) && hash(x+9,y+3)>0.3) tree=true;
+    if(tree) map[y][x].t="tree";
+  }
 }
 function solid(x,y){
   if(x<=0||y<=0||x>=COLS-1||y>=ROWS-1) return true;
   if(x>=HOUSE.x0&&x<=HOUSE.x1&&y>=HOUSE.y0&&y<=HOUSE.y1) return true;
   if(x===BIN.x&&y===BIN.y) return true;
   if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1) return true;
+  if(inBounds(x,y) && map[y][x].t==="tree") return true;
   return false;
 }
 function seedCount(k){ return player.seedInv[k]||0; }
@@ -240,6 +256,11 @@ function update(){
     if(!hitSolid(player.x-r,ny-r)&&!hitSolid(player.x+r,ny+r)) player.y=ny;
   }
   for(let i=toasts.length-1;i>=0;i--){ toasts[i].t--; if(toasts[i].t<=0) toasts.splice(i,1); }
+  // camera follows the player, clamped to the map bounds
+  const maxCamX = Math.max(0, COLS*T - cv.width);
+  const maxCamY = Math.max(0, ROWS*T - cv.height);
+  camX = clamp(player.x + T/2 - cv.width/2, 0, maxCamX);
+  camY = clamp(player.y + T/2 - cv.height/2, 0, maxCamY);
 }
 function hitSolid(px,py){
   const tx=Math.floor(px/T), ty=Math.floor(py/T);
@@ -250,9 +271,14 @@ function hitSolid(px,py){
 // ============================================================ render
 function hash(x,y){ let h=(x*374761393+y*668265263)^0x5bf03635; return ((h^(h>>13))>>>0)/4294967295; }
 function render(){
-  // tiles
+  ctx.clearRect(0,0,cv.width,cv.height);
+  // ---- world layer (camera-translated, only the visible window) ----
+  ctx.save();
+  ctx.translate(-Math.round(camX), -Math.round(camY));
   const pal = GRASS[season];
-  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+  const x0=Math.max(0,Math.floor(camX/T)), x1=Math.min(COLS,Math.ceil((camX+cv.width)/T));
+  const y0=Math.max(0,Math.floor(camY/T)), y1=Math.min(ROWS,Math.ceil((camY+cv.height)/T));
+  for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
     const t=map[y][x], h=hash(x,y);
     if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1){
       ctx.fillStyle = (Math.floor(frame/40)+x+y)%2? "#3b6ea5":"#3f76b0";
@@ -260,6 +286,10 @@ function render(){
       ctx.fillStyle = (x+y)%2? pal[0]:pal[1];
       ctx.fillRect(x*T,y*T,T,T);
       if(season!==3 && h>0.8){ ctx.fillStyle=season===2?"#8a5a18":"#3f6b31"; ctx.fillRect(x*T+8+h*10,y*T+10,3,3); ctx.fillRect(x*T+20,y*T+18+h*4,3,3); }
+    } else if(t.t==="tree"){
+      ctx.fillStyle="#5b3b22"; ctx.fillRect(x*T+6,y*T+14,T-12,T-14);
+      ctx.fillStyle="#2f6b34"; ctx.beginPath(); ctx.arc(x*T+T/2,y*T+12,T/2-2,0,7); ctx.fill();
+      ctx.fillStyle="#357a3c"; ctx.beginPath(); ctx.arc(x*T+T/2-4,y*T+8,7,0,7); ctx.fill();
     } else { // tilled
       ctx.fillStyle = t.wet? "#513722":"#6b4a2c";
       ctx.fillRect(x*T,y*T,T,T);
@@ -269,12 +299,14 @@ function render(){
     if(t.crop) drawCrop(x,y,t.crop);
   }
   drawHouse(); drawBin(); drawFence();
-  if(raining) drawRain(); else if(season===3) drawSnow();
   drawPlayer();
-  // season mood tint
+  ctx.restore();
+  // ---- screen-space overlays ----
   ctx.fillStyle=SEASON_TINT[season]; ctx.fillRect(0,0,cv.width,cv.height);
   drawNightTint();
+  if(raining) drawRain(); else if(season===3) drawSnow();
   drawHUD();
+  drawMinimap();
   drawToasts();
   if(fading){ ctx.fillStyle="rgba(0,0,0,"+Math.min(fading,1)+")"; ctx.fillRect(0,0,cv.width,cv.height);
     if(fadeDir>0){ ctx.fillStyle="#fff"; ctx.font="16px 'Segoe UI'"; ctx.textAlign="center"; ctx.fillText("Sleeping...", cv.width/2, cv.height/2); } }
@@ -397,6 +429,22 @@ function drawToasts(){
     ctx.fillStyle="rgba(240,230,200,"+alpha+")";
     ctx.fillText(t.msg, cv.width/2, 78+i*30);
   });
+}
+function drawMinimap(){
+  const mw=120, mh=Math.round(mw*ROWS/COLS), mx=cv.width-mw-10, my=cv.height-mh-10;
+  ctx.fillStyle="rgba(10,14,8,0.6)"; ctx.fillRect(mx-2,my-2,mw+4,mh+4);
+  const sx=mw/COLS, sy=mh/ROWS;
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=map[y][x]; let c=null;
+    if(t.t==="tree") c="#2f6b34";
+    else if(t.t==="tilled") c=t.wet?"#452e1c":"#5d3f24";
+    else if(t.crop) c=CROPS[t.crop.key].leaf;
+    else if(x>=POND.x0&&x<=POND.x1&&y>=POND.y0&&y<=POND.y1) c="#3f76b0";
+    if(c){ ctx.fillStyle=c; ctx.fillRect(mx+x*sx, my+y*sy, Math.ceil(sx), Math.ceil(sy)); }
+  }
+  ctx.fillStyle="#b04a3a"; ctx.fillRect(mx+HOUSE.x0*sx,my+HOUSE.y0*sy,(HOUSE.x1-HOUSE.x0+1)*sx,(HOUSE.y1-HOUSE.y0+1)*sy);
+  ctx.fillStyle="#f2d06b"; ctx.fillRect(mx+BIN.x*sx-1,my+BIN.y*sy-1,3,3);
+  ctx.fillStyle="#3d6b8f"; ctx.fillRect(mx+(player.x/T)*sx-1, my+(player.y/T)*sy-1, 3,3);
 }
 
 // ============================================================ loop
