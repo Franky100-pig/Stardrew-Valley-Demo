@@ -56,6 +56,17 @@ const CROPS = {
 };
 const SEED_ORDER = ["parsnip","potato","blueberry","tomato","pumpkin","wheat"];
 
+// Non-player characters — original homage villagers (no game-asset reuse).
+// Just flavor characters for now; the friendship / gift / event system is NOT
+// modeled yet (per the "don't introduce the system yet" scope).
+const NPC_DEFS = [
+  {name:"Mara",    x:10, y:6,  skin:"#e8c39a", hair:"#5a3a22", shirt:"#b5668f", greeting:"Morning! The soil's thirsty — keep your crops watered each day."},
+  {name:"Old Tom", x:3,  y:8,  skin:"#d9b48a", hair:"#cfcfcf", shirt:"#7a8a3a", greeting:"Fine day for tilling. Plant out of season and the crop'll wither on you."},
+  {name:"Pim",     x:36, y:26, skin:"#f0c9a0", hair:"#3a2a1a", shirt:"#3d8fb0", greeting:"The pond's full of fish this season. My spot, though — hands off!"},
+  {name:"Wren",    x:24, y:18, skin:"#e8c39a", hair:"#8a5a2a", shirt:"#c08a3a", greeting:"Caught you in the grove! Plenty of wood to chop around here."},
+  {name:"Bram",    x:14, y:28, skin:"#d9b48a", hair:"#2a2a2a", shirt:"#5a6a8a", greeting:"Off to the forest? Mind the trees — they don't step aside for anyone."},
+];
+
 // ============================================================ state
 let map = [];
 let player, raining = false, year = 1, season = 0, day = 1, selectedSeed = "parsnip";
@@ -63,6 +74,7 @@ let harvest = {};                 // cropKey -> count harvested & held
 let toasts = [];
 let frame = 0, fading = 0, fadeDir = 0;
 let camX = 0, camY = 0;           // top-left of the viewport, in world pixels
+let NPCS = [];                    // active NPCs for the current game
 
 function inBounds(x,y){ return x>=0 && y>=0 && x<COLS && y<ROWS; }
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
@@ -95,6 +107,7 @@ function solid(x,y){
 }
 function seedCount(k){ return player.seedInv[k]||0; }
 function newGame(){
+  NPCS = NPC_DEFS.map(d=>({...d}));   // reset villagers for a new game
   resetMap();
   player = {x:9.5*T, y:5.5*T, dx:0, dy:1, tool:"hoe",
             energy:100, gold:50, seedInv:{parsnip:12}};
@@ -299,6 +312,7 @@ function render(){
     if(t.crop) drawCrop(x,y,t.crop);
   }
   drawHouse(); drawBin(); drawFence();
+  NPCS.forEach(drawNPC);
   drawPlayer();
   ctx.restore();
   // ---- screen-space overlays ----
@@ -388,6 +402,20 @@ function drawPlayer(){
   else if(player.tool==="seeds"){ ctx.fillStyle="#b58a4a"; ctx.beginPath(); ctx.arc(hx+1,hy-2,5,0,7); ctx.fill(); ctx.fillStyle="#cdd39a"; ctx.fillRect(hx,hy-8,2,2); }
   else { ctx.fillStyle="#e8c39a"; ctx.fillRect(hx,hy-3,4,6); }
 }
+function drawNPC(n){
+  const px=n.x*T+T/2, py=n.y*T+T/2;
+  ctx.fillStyle="#2b2b2b"; ctx.fillRect(px-7,py+6,14,5);                 // shadow
+  ctx.fillStyle=n.shirt; ctx.fillRect(px-8,py-2,16,14);                 // body
+  ctx.fillStyle=n.skin;  ctx.fillRect(px-6,py-14,12,12);                // head
+  ctx.fillStyle=n.hair;  ctx.fillRect(px-7,py-16,14,5);                 // hair
+  ctx.fillStyle="#222";
+  ctx.fillRect(px-3,py-9,2,2); ctx.fillRect(px+1,py-9,2,2);             // eyes
+  // name label
+  ctx.font="11px 'Segoe UI'"; ctx.textAlign="center";
+  const w=ctx.measureText(n.name).width+10;
+  ctx.fillStyle="rgba(15,20,10,0.7)"; ctx.fillRect(px-w/2, py-34, w, 14);
+  ctx.fillStyle="#f2e6c8"; ctx.fillText(n.name, px, py-24);
+}
 function drawHUD(){
   ctx.fillStyle="rgba(20,26,16,0.82)"; ctx.fillRect(0,0,cv.width,58);
   ctx.textAlign="left"; ctx.textBaseline="middle";
@@ -445,6 +473,7 @@ function drawMinimap(){
   ctx.fillStyle="#b04a3a"; ctx.fillRect(mx+HOUSE.x0*sx,my+HOUSE.y0*sy,(HOUSE.x1-HOUSE.x0+1)*sx,(HOUSE.y1-HOUSE.y0+1)*sy);
   ctx.fillStyle="#f2d06b"; ctx.fillRect(mx+BIN.x*sx-1,my+BIN.y*sy-1,3,3);
   ctx.fillStyle="#3d6b8f"; ctx.fillRect(mx+(player.x/T)*sx-1, my+(player.y/T)*sy-1, 3,3);
+  NPCS.forEach(n=>{ ctx.fillStyle="#ffd27f"; ctx.fillRect(mx+n.x*sx-1, my+n.y*sy-1, 2,2); });
 }
 
 // ============================================================ loop
