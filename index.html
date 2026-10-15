@@ -17,7 +17,7 @@
 <div id="hint">
   <kbd>WASD</kbd>/<kbd>←↑→↓</kbd> move &nbsp; <kbd>1</kbd> Hoe &nbsp; <kbd>2</kbd> Seeds &nbsp; <kbd>3</kbd> Water &nbsp; <kbd>4</kbd> Hand &nbsp;
   <kbd>C</kbd> pick seed &nbsp; <kbd>Space</kbd>/<kbd>Click</kbd> use tool<br>
-  <kbd>E</kbd> sell / sleep / talk to villagers &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Crops only grow if watered each day — and only in their season.<br>
+  <kbd>E</kbd> sell / sleep / talk to villagers &nbsp; <kbd>G</kbd> gift a crop to a villager &nbsp; <kbd>B</kbd> buy seed at bin &nbsp; Talk &amp; gifts raise friendship (hearts). Crops only grow if watered each day — and only in their season.<br>
   The farm is much bigger now — explore it, and use the minimap (bottom-right) to find your way back to the house &amp; shipping bin.
 </div>
 <script>
@@ -56,15 +56,19 @@ const CROPS = {
 };
 const SEED_ORDER = ["parsnip","potato","blueberry","tomato","pumpkin","wheat"];
 
+// Friendship — an original homage of Stardew's NPC affection model (points ->
+// hearts, daily talk gift, per-villager gift taste). No game data or assets reused.
+const PT_PER_HEART = 250, MAX_HEARTS = 6, MAX_PTS = PT_PER_HEART*MAX_HEARTS;
+const TALK_PTS = 20, LOVE_PTS = 80, LIKE_PTS = 45, NEUTRAL_PTS = 20;
+
 // Non-player characters — original homage villagers (no game-asset reuse).
-// Just flavor characters for now; the friendship / gift / event system is NOT
-// modeled yet (per the "don't introduce the system yet" scope).
+// `loves`/`likes` are invented gift tastes (crop keys) for the interaction system.
 const NPC_DEFS = [
-  {name:"Mara",    x:10, y:6,  skin:"#e8c39a", hair:"#5a3a22", shirt:"#b5668f", greeting:"Morning! The soil's thirsty — keep your crops watered each day."},
-  {name:"Old Tom", x:3,  y:8,  skin:"#d9b48a", hair:"#cfcfcf", shirt:"#7a8a3a", greeting:"Fine day for tilling. Plant out of season and the crop'll wither on you."},
-  {name:"Pim",     x:36, y:26, skin:"#f0c9a0", hair:"#3a2a1a", shirt:"#3d8fb0", greeting:"The pond's full of fish this season. My spot, though — hands off!"},
-  {name:"Wren",    x:24, y:18, skin:"#e8c39a", hair:"#8a5a2a", shirt:"#c08a3a", greeting:"Caught you in the grove! Plenty of wood to chop around here."},
-  {name:"Bram",    x:14, y:28, skin:"#d9b48a", hair:"#2a2a2a", shirt:"#5a6a8a", greeting:"Off to the forest? Mind the trees — they don't step aside for anyone."},
+  {name:"Mara",    x:10, y:6,  skin:"#e8c39a", hair:"#5a3a22", shirt:"#b5668f", greeting:"Morning! The soil's thirsty — keep your crops watered each day.", loves:["pumpkin"], likes:["tomato","potato"]},
+  {name:"Old Tom", x:3,  y:8,  skin:"#d9b48a", hair:"#cfcfcf", shirt:"#7a8a3a", greeting:"Fine day for tilling. Plant out of season and the crop'll wither on you.", loves:["parsnip"], likes:["wheat","potato"]},
+  {name:"Pim",     x:36, y:26, skin:"#f0c9a0", hair:"#3a2a1a", shirt:"#3d8fb0", greeting:"The pond's full of fish this season. My spot, though — hands off!", loves:["blueberry"], likes:["wheat"]},
+  {name:"Wren",    x:24, y:18, skin:"#e8c39a", hair:"#8a5a2a", shirt:"#c08a3a", greeting:"Caught you in the grove! Plenty of wood to chop around here.", loves:["blueberry"], likes:["pumpkin"]},
+  {name:"Bram",    x:14, y:28, skin:"#d9b48a", hair:"#2a2a2a", shirt:"#5a6a8a", greeting:"Off to the forest? Mind the trees — they don't step aside for anyone.", loves:["potato"], likes:["parsnip"]},
 ];
 
 // ============================================================ state
@@ -75,6 +79,7 @@ let toasts = [];
 let frame = 0, fading = 0, fadeDir = 0;
 let camX = 0, camY = 0;           // top-left of the viewport, in world pixels
 let NPCS = [];                    // active NPCs for the current game
+let panel = null;                 // open dialogue panel {npc, text, t}
 
 function inBounds(x,y){ return x>=0 && y>=0 && x<COLS && y<ROWS; }
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
@@ -109,7 +114,7 @@ function solid(x,y){
 }
 function seedCount(k){ return player.seedInv[k]||0; }
 function newGame(){
-  NPCS = NPC_DEFS.map(d=>({...d}));   // reset villagers for a new game
+  NPCS = NPC_DEFS.map(d=>({...d, points:0, talkedToday:false, giftedToday:false}));   // reset villagers for a new game
   resetMap();
   player = {x:9.5*T, y:5.5*T, dx:0, dy:1, tool:"hoe",
             energy:100, gold:50, seedInv:{parsnip:12}};
@@ -131,6 +136,7 @@ addEventListener("keydown", e=>{
   if(k==="b") buySeed();
   if(k===" ") { e.preventDefault(); useTool(); }
   if(k==="e") interact();
+  if(k==="g") giftNearby();
 });
 addEventListener("keyup", e=>{ keys[e.key.toLowerCase()] = false; });
 cv.addEventListener("mousedown", ()=>useTool());
@@ -201,12 +207,48 @@ function interact(){
   }
   else if(near(DOOR.x,DOOR.y)) sleep();
   else {
-    // nearby villager? (no friendship/event system yet — just a greeting)
-    let best=99, nearNpc=null;
-    for(const n of NPCS){ const d=Math.abs(px-n.x)+Math.abs(py-n.y); if(d<=2 && d<best){ best=d; nearNpc=n; } }
-    if(nearNpc){ toast(nearNpc.name+": "+nearNpc.greeting); return; }
+    // nearby villager? -> open the dialogue / friendship panel
+    const n = nearbyNpc(px,py);
+    if(n){ talk(n); return; }
     toast("Nothing to interact with. (Bin: sell/buy, Door: sleep, Villager: talk)");
   }
+}
+function nearbyNpc(px,py){
+  let best=99, nearNpc=null;
+  for(const n of NPCS){ const d=Math.abs(px-n.x)+Math.abs(py-n.y); if(d<=2 && d<best){ best=d; nearNpc=n; } }
+  return nearNpc;
+}
+function hearts(n){ return Math.floor(n.points / PT_PER_HEART); }
+function talk(n){
+  if(!n.talkedToday){ n.points = Math.min(MAX_PTS, n.points + TALK_PTS); n.talkedToday = true; }
+  panel = {npc:n, text:n.greeting, t:600};
+}
+function giftNearby(){
+  if(fading) return;
+  const px=Math.floor(player.x/T), py=Math.floor(player.y/T);
+  const n = nearbyNpc(px,py);
+  if(!n){ toast("Stand next to a villager and press G to give a gift."); return; }
+  gift(n);
+}
+function gift(n){
+  if(n.giftedToday){ toast(n.name+": You've already given me something today — one gift a day!"); return; }
+  // pick the best giftable crop the player currently holds
+  let best=null, bestTier=0;
+  for(const k in harvest){
+    if(!harvest[k]) continue;
+    let tier = n.loves && n.loves.includes(k) ? 2 : (n.likes && n.likes.includes(k) ? 1 : 0);
+    if(tier > bestTier){ bestTier=tier; best=k; }
+  }
+  if(!best){ toast("You have nothing to gift — harvest a crop first!"); return; }
+  harvest[best]--; if(harvest[best]<=0) delete harvest[best];
+  let pts, react;
+  if(bestTier===2){ pts=LOVE_PTS;    react="Oh, a "+CROPS[best].name+"! That's my favourite — thank you!"; }
+  else if(bestTier===1){ pts=LIKE_PTS; react="A "+CROPS[best].name+"? I do like these. Thanks!"; }
+  else { pts=NEUTRAL_PTS; react="Thanks for the "+CROPS[best].name+"."; }
+  n.points = Math.min(MAX_PTS, n.points + pts);
+  n.giftedToday = true;
+  panel = {npc:n, text:react, t:600};
+  toast(n.name+" friendship +"+pts+" ("+hearts(n)+"/"+MAX_HEARTS+" hearts)");
 }
 function buySeed(){
   if(fading) return;
@@ -245,6 +287,7 @@ function finishSleep(){
     }
   }
   player.energy=100;
+  NPCS.forEach(n=>{ n.talkedToday=false; n.giftedToday=false; });   // one talk + one gift per day
   raining = Math.random()<0.25;
   if(raining) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(map[y][x].t==="tilled") map[y][x].wet=true;
   let msg="Day "+day+", "+SEASONS[season]+" (Year "+year+").";
@@ -277,6 +320,12 @@ function update(){
     if(!hitSolid(player.x-r,ny-r)&&!hitSolid(player.x+r,ny+r)) player.y=ny;
   }
   for(let i=toasts.length-1;i>=0;i--){ toasts[i].t--; if(toasts[i].t<=0) toasts.splice(i,1); }
+  // dialogue panel auto-closes when it times out or you walk away from the NPC
+  if(panel){
+    panel.t--;
+    const d = Math.abs(Math.floor(player.x/T)-panel.npc.x) + Math.abs(Math.floor(player.y/T)-panel.npc.y);
+    if(panel.t<=0 || d>2) panel=null;
+  }
   // camera follows the player, clamped to the map bounds
   const maxCamX = Math.max(0, COLS*T - cv.width);
   const maxCamY = Math.max(0, ROWS*T - cv.height);
@@ -330,6 +379,7 @@ function render(){
   drawHUD();
   drawMinimap();
   drawToasts();
+  drawPanel();
   if(fading){ ctx.fillStyle="rgba(0,0,0,"+Math.min(fading,1)+")"; ctx.fillRect(0,0,cv.width,cv.height);
     if(fadeDir>0){ ctx.fillStyle="#fff"; ctx.font="16px 'Segoe UI'"; ctx.textAlign="center"; ctx.fillText("Sleeping...", cv.width/2, cv.height/2); } }
 }
@@ -423,6 +473,20 @@ function drawNPC(n){
   const w=ctx.measureText(n.name).width+10;
   ctx.fillStyle="rgba(15,20,10,0.7)"; ctx.fillRect(px-w/2, py-34, w, 14);
   ctx.fillStyle="#f2e6c8"; ctx.fillText(n.name, px, py-24);
+  // friendship hearts above the label (mini)
+  const hn = hearts(n);
+  for(let i=0;i<MAX_HEARTS;i++) paintHeart(px-MAX_HEARTS*4.5 + i*9, py-48, 3, i<hn ? "#e0544f" : "#3a4a30");
+}
+function paintHeart(cx,cy,s,color){
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s, 0, Math.PI*2);
+  ctx.arc(cx+s, cy, s, 0, Math.PI*2);
+  ctx.moveTo(cx-s, cy+s*0.5);
+  ctx.lineTo(cx+s*0.5, cy+s*2.2);
+  ctx.lineTo(cx+2*s, cy+s*0.5);
+  ctx.closePath();
+  ctx.fill();
 }
 function drawHUD(){
   ctx.fillStyle="rgba(20,26,16,0.82)"; ctx.fillRect(0,0,cv.width,58);
@@ -482,6 +546,30 @@ function drawMinimap(){
   ctx.fillStyle="#f2d06b"; ctx.fillRect(mx+BIN.x*sx-1,my+BIN.y*sy-1,3,3);
   ctx.fillStyle="#3d6b8f"; ctx.fillRect(mx+(player.x/T)*sx-1, my+(player.y/T)*sy-1, 3,3);
   NPCS.forEach(n=>{ ctx.fillStyle="#ffd27f"; ctx.fillRect(mx+n.x*sx-1, my+n.y*sy-1, 2,2); });
+}
+function drawPanel(){
+  if(!panel) return;
+  const n = panel.npc;
+  const bx=24, by=cv.height-150, bw=cv.width-48, bh=120;
+  ctx.fillStyle="rgba(18,24,14,0.92)"; ctx.fillRect(bx,by,bw,bh);
+  ctx.strokeStyle="#6b5a3a"; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+  // original pixel portrait (no asset reuse)
+  const px=bx+46, py=by+54;
+  ctx.fillStyle=n.shirt; ctx.fillRect(px-18,py-8,36,42);
+  ctx.fillStyle=n.skin;  ctx.fillRect(px-14,py-32,28,28);
+  ctx.fillStyle=n.hair;  ctx.fillRect(px-16,py-36,32,12);
+  ctx.fillStyle="#222";  ctx.fillRect(px-8,py-20,4,4); ctx.fillRect(px+4,py-20,4,4);
+  // name + hearts
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle="#f2e6c8"; ctx.font="bold 16px 'Segoe UI'";
+  ctx.fillText(n.name, bx+92, by+28);
+  for(let i=0;i<MAX_HEARTS;i++) paintHeart(bx+92 + i*16, by+38, 4.5, i<hearts(n) ? "#e0544f" : "#4a3a3a");
+  // dialogue text
+  ctx.fillStyle="#e8dcc0"; ctx.font="14px 'Segoe UI'";
+  ctx.fillText(panel.text, bx+92, by+72);
+  // hints
+  ctx.fillStyle="#9aa88a"; ctx.font="12px 'Segoe UI'";
+  ctx.fillText("[G] give a gift ("+(n.giftedToday?"used today":"1/day")+")   ·   [E] keep talking", bx+92, by+100);
 }
 
 // ============================================================ loop
