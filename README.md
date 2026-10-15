@@ -21,8 +21,12 @@ code** — no game assets or decompiled source are included.
   farmland; trees are solid obstacles, the home/farm yard stays clear.
 - **Villagers (NPCs)** — five original homage characters (Mara, Old Tom, Pim, Wren, Bram) stand around
   the farm, are solid (you can't walk through them), appear as labeled dots on the minimap, and will
-  give you a flavor line when you press `E` nearby. *The friendship / gift / event system is deliberately
-  not modeled yet* — they're just atmosphere for now.
+  give you a flavor line when you press `E` nearby.
+- **Interaction / friendship system** — talk to a villager for the day (`E`), or give them a gift of a
+  crop you've harvested (`G`). Each villager has invented `loves` / `likes` tastes. Points convert to
+  **hearts** (250 pts = 1 heart, max 6); talking is +20/day, a loved gift +80, liked +45, neutral +20,
+  and you only get **one talk and one gift per villager per day** — a simplified homage of the game's
+  affection model. A dialogue panel shows their pixel portrait, name, heart row, and line.
 
 ## Controls
 
@@ -33,7 +37,32 @@ code** — no game assets or decompiled source are included.
 | `C` | Cycle selected seed |
 | `Space` / Click | Use tool on facing tile |
 | `E` | Sell harvest at bin / sleep at door / talk to a nearby villager |
+| `G` | Give a held crop to a nearby villager (gift) |
 | `B` | Buy 1 seed at bin |
+
+## Screenshots (real runs, not mockups)
+
+Actual screenshots taken from the running demo in a headless Chromium — this is the whole thing
+in `index.html`, no assets, no engine:
+
+![The farm with villagers — original pixel art, name labels, hearts above NPCs, and the minimap](./screenshot_world.png)
+
+![Talking to Mara — dialogue panel with pixel portrait, name, heart row, and line](./screenshot_dialog.png)
+
+## Original work & licensing
+
+This is an **original homage**, not a copy and not a redistribution of the game:
+
+- Every sprite, tile, portrait, name, and line here is **original code drawn with canvas primitives**.
+- **No game assets** (art, audio, fonts, maps, `.xnb` content) and **no decompiled game source** are
+  included in this repository. The reverse-engineering of `Stardew Valley.dll` was done locally, for
+  personal study only, and stays out of this repo.
+- Only the *structure* of some mechanics (a 4×28 calendar, water-gated crop growth, seasonal
+  withering, a points→hearts affection model) was informed by that study. All numbers, characters,
+  art, and code here are freshly written for this demo.
+
+So the screenshots above are the proof: what you see is entirely original artwork and original
+character names, drawn at runtime.
 
 ## Run it
 
